@@ -1,6 +1,6 @@
 """Add wallpapers to Deer's collection, remove one, or check the collection before pushing.
 
-  python add.py PHOTO [PHOTO ...] --author "Name" --license "CC0-1.0" [--title "Title"] [--source URL]
+  python add.py PHOTO [PHOTO ...] [--title "Title"] [--author "Name" --license "CC-BY-4.0" --source URL]
   python add.py --remove ID
   python add.py --check
 
@@ -8,17 +8,19 @@ Adding a photo:
   - turns it the right way up (EXIF orientation) and removes every bit of metadata (EXIF, GPS
     location, camera serial numbers, colour profiles are converted to sRGB first);
   - makes full/<id>.jpg (at most 3840 px on the long side) and thumbs/<id>.jpg (480 px wide);
-  - adds an entry to wallpapers.json: id, title, author, license, source, added, color (the mean
-    colour, which Deer paints while the picture loads), width, height, file, bytes, sha256, thumb,
-    thumbBytes, thumbSha256.
+  - adds an entry to wallpapers.json: id, title, added, color (the mean colour, which Deer paints
+    while the picture loads), width, height, file, bytes, sha256, thumb, thumbBytes, thumbSha256,
+    and author, license and source when given.
 --title is the same for every photo given, so give it only with one photo; without it the title
 comes from the file name ("lake_at-dawn.jpg" -> "Lake at dawn"). The id comes from the title and
 is never reused for another picture.
 
 Then commit and push:  git add -A && git commit -m "Add wallpapers" && git push
 
-Only add photos you took yourself or whose licence allows anyone to share them (for example
-CC0-1.0, CC-BY-4.0), and credit the photographer in --author.
+Your own photos need nothing more: with no --author and --license they are listed as the owner's
+own (README: all rights reserved, shared as Deer wallpapers) and Deer shows no credit. Someone
+else's photo goes in only when its licence lets anyone share it (for example CC0-1.0, CC-BY-4.0):
+then give --author and --license, which Deer shows as the credit (CC-BY requires it).
 Needs Pillow (python -m pip install pillow).
 """
 import argparse
@@ -43,6 +45,9 @@ MIN_WIDTH = 1920         # smaller photos look soft as a background
 MAX_FULL_BYTES = 25 * 1024 * 1024   # Deer refuses bigger files
 MAX_THUMB_BYTES = 512 * 1024
 ID_RE = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$')
+# Deer skips an entry whose texts are longer than these or hold control or direction characters.
+TEXT_MAX = {'title': 120, 'author': 120, 'license': 64}
+UNSAFE = re.compile('[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]')
 
 Image.MAX_IMAGE_PIXELS = 300_000_000
 
@@ -142,7 +147,7 @@ def add(paths, author, license_, title, source):
             thumb = jpeg_bytes(thumb_img, 65)
         mean = ImageStat.Stat(img.resize((64, 64), Image.BILINEAR)).mean
         color = '#%02x%02x%02x' % tuple(int(round(c)) for c in mean[:3])
-        t = (title or title_from(path)).strip()
+        t = UNSAFE.sub('', (title or title_from(path)).strip())[:TEXT_MAX['title']].strip() or 'Wallpaper'
         wid = unique_id(slug(t), taken)
         taken.add(wid)
         full_rel = 'full/%s.jpg' % wid
@@ -154,8 +159,6 @@ def add(paths, author, license_, title, source):
         entry = {
             'id': wid,
             'title': t,
-            'author': author,
-            'license': license_,
             'added': datetime.date.today().isoformat(),
             'color': color,
             'width': img.width,
@@ -167,6 +170,10 @@ def add(paths, author, license_, title, source):
             'thumbBytes': len(thumb),
             'thumbSha256': sha256(thumb),
         }
+        if author:
+            entry['author'] = author
+        if license_:
+            entry['license'] = license_
         if source:
             entry['source'] = source
         data['wallpapers'].insert(0, entry)
@@ -205,9 +212,18 @@ def check():
         if wid in seen:
             problems.append('id used twice')
         seen.add(wid)
-        for key in ('title', 'author', 'license', 'color', 'file', 'thumb', 'sha256', 'thumbSha256'):
+        for key in ('title', 'color', 'file', 'thumb', 'sha256', 'thumbSha256'):
             if not isinstance(w.get(key), str) or not w.get(key):
                 problems.append('missing ' + key)
+        for key in ('author', 'license', 'source'):
+            if key in w and (not isinstance(w[key], str) or not w[key]):
+                problems.append(key + ' must be text when given')
+        for key, most in TEXT_MAX.items():
+            v = w.get(key)
+            if isinstance(v, str) and (len(v.strip()) > most or UNSAFE.search(v)):
+                problems.append('%s is longer than %d characters or holds control characters (Deer would skip it)' % (key, most))
+        if bool(w.get('author')) != bool(w.get('license')):
+            problems.append('give author and license together (or neither, for your own photos)')
         for rel, size_key, sha_key, cap in (('file', 'bytes', 'sha256', MAX_FULL_BYTES), ('thumb', 'thumbBytes', 'thumbSha256', MAX_THUMB_BYTES)):
             p = w.get(rel)
             if not isinstance(p, str):
@@ -256,9 +272,12 @@ def main():
     if not a.photos:
         ap.print_help()
         return
-    if not a.author or not a.license_:
-        sys.exit('give --author (who took the photos) and --license (for example CC0-1.0)')
-    add(a.photos, a.author.strip(), a.license_.strip(), a.title, a.source)
+    if bool(a.author) != bool(a.license_):
+        sys.exit("someone else's photo needs both --author and --license; your own needs neither")
+    for key, v in (('author', a.author), ('license', a.license_)):
+        if v and (len(v.strip()) > TEXT_MAX[key] or UNSAFE.search(v)):
+            sys.exit('--%s must be at most %d characters, with no control characters' % (key, TEXT_MAX[key]))
+    add(a.photos, (a.author or '').strip(), (a.license_ or '').strip(), a.title, a.source)
 
 
 if __name__ == '__main__':

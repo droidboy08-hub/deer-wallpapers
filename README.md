@@ -1,14 +1,15 @@
 # Deer wallpapers
 
-Wallpapers for [Deer](https://github.com/droidboy08-hub/deer). Deer shows them in
-Settings › Home and background, and downloads one only when you choose it.
+Wallpapers for [Deer](https://github.com/droidboy08-hub/deer). Deer shows them in its background
+picker (Settings › Home and background, and the Background button on Home), and downloads one only
+when you choose it.
 
 ## Adding wallpapers
 
 Needs Python and Pillow (`python -m pip install pillow`).
 
 ```
-python add.py C:\Photos\lake.jpg C:\Photos\hills.jpg --author "Your Name" --license CC0-1.0
+python add.py C:\Photos\lake.jpg C:\Photos\hills.jpg
 python add.py --check
 git add -A
 git commit -m "Add wallpapers"
@@ -24,20 +25,28 @@ To take one out: `python add.py --remove <id>`, then commit and push. Its id is 
 
 ## What may go in
 
-Only photos you took yourself, or photos whose licence lets anyone share them (for example
-CC0-1.0 or CC-BY-4.0). Put the photographer in `--author` and the licence in `--license`;
-Deer shows both. No pictures from Windows, Bing or other apps and sites that do not allow
-sharing them.
+- **Photos the owner of this repository took.** Add them with no `--author` or `--license`;
+  Deer shows no credit for them. They are © the repository owner, all rights reserved, and
+  shared only for use as wallpapers in Deer.
+- **Someone else's photo whose licence lets anyone share it** (for example CC0-1.0 or
+  CC-BY-4.0): add it with `--author "Photographer" --license CC-BY-4.0` (and `--source <link>`);
+  Deer shows the credit, which CC-BY requires.
+
+Nothing else: no pictures downloaded from wallpaper sites, no game, film or anime art, no
+Windows or Bing wallpapers. Those sites do not own the pictures and give no right to share them.
 
 ## How Deer uses this repository
 
 Deer reads `wallpapers.json` from this repository's GitHub Pages site
-(`https://droidboy08-hub.github.io/deer-wallpapers/`) when Settings › Home and background is
-open, shows the thumbnails, and downloads the full picture when you choose it. Every file must
-match the size and SHA-256 listed in `wallpapers.json`, or Deer does not use it. The requests
-carry no cookie or identifier.
+(`https://droidboy08-hub.github.io/deer-wallpapers/`) while its background picker shows photos (at
+most once every 10 minutes), shows the thumbnails, and downloads the full picture when you choose
+it. Every file must match the size and SHA-256 listed in `wallpapers.json` (and be a JPEG of the
+listed width and height), or Deer does not use it; an entry Deer cannot read is left out. The
+requests carry no cookie or identifier. A wallpaper you take out stays on Home for anyone who
+already chose it.
 
 ## Licence
 
-`add.py` and this README: Mozilla Public License 2.0 (`LICENSE`). Each photo keeps the licence
-listed with it in `wallpapers.json`.
+`add.py` and this README: Mozilla Public License 2.0 (`LICENSE`). A photo with a licence listed
+in `wallpapers.json` keeps that licence; a photo with none is the repository owner's, all rights
+reserved, shared only for use as a wallpaper in Deer.
