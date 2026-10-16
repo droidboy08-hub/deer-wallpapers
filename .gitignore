@@ -1,0 +1,5 @@
+incoming/
+__pycache__/
+*.pyc
+Thumbs.db
+desktop.ini
