@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 try:
     from PIL import Image, ImageCms, ImageOps, ImageStat
@@ -76,7 +77,9 @@ def title_from(path):
 
 
 def slug(title):
-    s = title.lower()
+    # "Serranía" -> "serrania", "Moon's" -> "moons"
+    s = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode('ascii').lower()
+    s = re.sub(r"['’]", '', s)
     s = re.sub(r'[^a-z0-9]+', '-', s).strip('-')
     return s[:64].strip('-') or 'wallpaper'
 
