@@ -2,6 +2,20 @@
   "version": 1,
   "wallpapers": [
     {
+      "id": "r07qxo-rdownload-2-1",
+      "title": "@r07qxo R⤓Download 2 (1)",
+      "added": "2026-10-17",
+      "color": "#061c36",
+      "width": 2569,
+      "height": 1440,
+      "file": "full/r07qxo-rdownload-2-1.jpg",
+      "bytes": 584400,
+      "sha256": "ffb4d883c9359a048f514ce835ef800fecb22a785d54ff8fd394020e770556ce",
+      "thumb": "thumbs/r07qxo-rdownload-2-1.jpg",
+      "thumbBytes": 19968,
+      "thumbSha256": "01aacd550e3c97d52f44e875ce15012629f42c469f5d4be833dee3ea6d76582f"
+    },
+    {
       "id": "mount-fuji-at-sunset-over-lake-kawaguchi",
       "title": "Mount Fuji at sunset over Lake Kawaguchi",
       "added": "2026-10-16",
