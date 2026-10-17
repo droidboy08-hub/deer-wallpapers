@@ -410,7 +410,7 @@ def check():
         if kind not in ('photo', 'video'):
             problems.append('kind must be "photo" or "video"')
         video = kind == 'video'
-        if video and not (isinstance(w.get('duration'), (int, float)) and 0 < w['duration'] <= 86400):
+        if video and not (isinstance(w.get('duration'), (int, float)) and 0 < w['duration'] < float('inf')):
             problems.append('a video needs its duration in seconds')
         for rel, size_key, sha_key, cap in (('file', 'bytes', 'sha256', MAX_VIDEO_BYTES if video else MAX_FULL_BYTES), ('thumb', 'thumbBytes', 'thumbSha256', MAX_THUMB_BYTES)):
             p = w.get(rel)
