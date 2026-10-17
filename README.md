@@ -6,7 +6,14 @@ when you choose it.
 
 ## Adding wallpapers
 
-Needs Python and Pillow (`python -m pip install pillow`).
+**The easy way (the owner):** drag photos into the `upload` folder of the private repository
+droidboy08-hub/deer-wallpapers-upload on github.com and commit. Its Action runs
+`add.py --uploads` on them (as the owner's own photos, no credit), pushes the result here and
+clears the folder; Deer has them a few minutes later. The originals never reach this public
+repository, so their location data stays private.
+
+**On a PC** (also for someone else's photo, which needs a credit). Needs Python and Pillow
+(`python -m pip install pillow`; `pillow-heif` too for iPhone HEIC photos).
 
 ```
 python add.py C:\Photos\lake.jpg C:\Photos\hills.jpg

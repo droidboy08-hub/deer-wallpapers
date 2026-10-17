@@ -3,6 +3,7 @@
   python add.py PHOTO [PHOTO ...] [--title "Title"] [--author "Name" --license "CC-BY-4.0" --source URL]
   python add.py --remove ID
   python add.py --check
+  python add.py --uploads FOLDER [--report FILE]   (every photo in FOLDER, as your own; the upload Action)
 
 Adding a photo:
   - turns it the right way up (EXIF orientation) and removes every bit of metadata (EXIF, GPS
@@ -51,6 +52,16 @@ TEXT_MAX = {'title': 120, 'author': 120, 'license': 64}
 UNSAFE = re.compile('[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]')
 
 Image.MAX_IMAGE_PIXELS = 300_000_000
+# Photos --uploads takes (HEIC/HEIF from phones when pillow-heif is installed).
+UPLOAD_EXT = ('.jpg', '.jpeg', '.png', '.webp', '.tif', '.tiff', '.bmp', '.heic', '.heif')
+# File names cameras and phones give, which make poor titles.
+CAMERA_NAME = re.compile(r'^(img|dsc|dscn|dscf|pxl|mvimg|photo|image|screenshot|whatsapp image|signal|pict?)[\s_-]*\d|^\d{6,}', re.I)
+
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
 
 
 def load_manifest():
@@ -71,6 +82,8 @@ def save_manifest(data):
 
 def title_from(path):
     stem = os.path.splitext(os.path.basename(path))[0]
+    if CAMERA_NAME.match(stem):
+        return 'Photo'  # "IMG_2034", "PXL_20261012_093011" say nothing about the picture
     words = re.sub(r'[_\-.]+', ' ', stem).strip()
     words = re.sub(r'\s+', ' ', words)
     return (words[:1].upper() + words[1:]) if words else 'Wallpaper'
@@ -120,68 +133,111 @@ def sha256(b):
     return hashlib.sha256(b).hexdigest()
 
 
+def add_one(data, taken, path, author, license_, title, source):
+    """Make the files of one photo and put its entry first in data; ValueError when it cannot be used."""
+    try:
+        with Image.open(path) as im:
+            im.load()
+            img = ImageOps.exif_transpose(im)
+            img = to_srgb(img)
+    except (OSError, SyntaxError, ValueError, Image.DecompressionBombError) as e:
+        raise ValueError('not a photo Pillow can read (%s)' % e) from None
+    w, h = img.size
+    if w < MIN_WIDTH:
+        print('warning: %s is only %d px wide; it will look soft as a background' % (path, w))
+    if h > w:
+        print('warning: %s is taller than it is wide; Home fills a wide window, so most of it is cut off' % path)
+    if max(w, h) > FULL_MAX:
+        scale = FULL_MAX / max(w, h)
+        img = img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    full = jpeg_bytes(img, 88)
+    if len(full) > MAX_FULL_BYTES:
+        full = jpeg_bytes(img, 80)
+    if len(full) > MAX_FULL_BYTES:
+        raise ValueError('still over %d MB as a JPEG' % (MAX_FULL_BYTES // 1048576))
+    tw = min(THUMB_WIDTH, img.width)
+    thumb_img = img.resize((tw, max(1, round(img.height * tw / img.width))), Image.LANCZOS)
+    thumb = jpeg_bytes(thumb_img, 80)
+    if len(thumb) > MAX_THUMB_BYTES:
+        thumb = jpeg_bytes(thumb_img, 65)
+    mean = ImageStat.Stat(img.resize((64, 64), Image.BILINEAR)).mean
+    color = '#%02x%02x%02x' % tuple(int(round(c)) for c in mean[:3])
+    t = UNSAFE.sub('', (title or title_from(path)).strip())[:TEXT_MAX['title']].strip() or 'Wallpaper'
+    wid = unique_id(slug(t), taken)
+    taken.add(wid)
+    full_rel = 'full/%s.jpg' % wid
+    thumb_rel = 'thumbs/%s.jpg' % wid
+    with open(os.path.join(HERE, full_rel), 'wb') as f:
+        f.write(full)
+    with open(os.path.join(HERE, thumb_rel), 'wb') as f:
+        f.write(thumb)
+    entry = {
+        'id': wid,
+        'title': t,
+        'added': datetime.date.today().isoformat(),
+        'color': color,
+        'width': img.width,
+        'height': img.height,
+        'file': full_rel,
+        'bytes': len(full),
+        'sha256': sha256(full),
+        'thumb': thumb_rel,
+        'thumbBytes': len(thumb),
+        'thumbSha256': sha256(thumb),
+    }
+    if author:
+        entry['author'] = author
+    if license_:
+        entry['license'] = license_
+    if source:
+        entry['source'] = source
+    data['wallpapers'].insert(0, entry)
+    print('added %s  "%s"  %dx%d  %.1f MB' % (wid, t, img.width, img.height, len(full) / 1048576))
+    return entry
+
+
 def add(paths, author, license_, title, source):
     data = load_manifest()
     taken = {w['id'] for w in data['wallpapers']} | set(data.get('retired', []))
     if title and len(paths) > 1:
         sys.exit('--title names one photo; give one photo with it, or leave it out')
     for path in paths:
-        with Image.open(path) as im:
-            im.load()
-            img = ImageOps.exif_transpose(im)
-            img = to_srgb(img)
-        w, h = img.size
-        if w < MIN_WIDTH:
-            print('warning: %s is only %d px wide; it will look soft as a background' % (path, w))
-        if h > w:
-            print('warning: %s is taller than it is wide; Home fills a wide window, so most of it is cut off' % path)
-        if max(w, h) > FULL_MAX:
-            scale = FULL_MAX / max(w, h)
-            img = img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
-        full = jpeg_bytes(img, 88)
-        if len(full) > MAX_FULL_BYTES:
-            full = jpeg_bytes(img, 80)
-        if len(full) > MAX_FULL_BYTES:
-            sys.exit('%s is still over %d MB as a JPEG' % (path, MAX_FULL_BYTES // 1048576))
-        tw = min(THUMB_WIDTH, img.width)
-        thumb_img = img.resize((tw, max(1, round(img.height * tw / img.width))), Image.LANCZOS)
-        thumb = jpeg_bytes(thumb_img, 80)
-        if len(thumb) > MAX_THUMB_BYTES:
-            thumb = jpeg_bytes(thumb_img, 65)
-        mean = ImageStat.Stat(img.resize((64, 64), Image.BILINEAR)).mean
-        color = '#%02x%02x%02x' % tuple(int(round(c)) for c in mean[:3])
-        t = UNSAFE.sub('', (title or title_from(path)).strip())[:TEXT_MAX['title']].strip() or 'Wallpaper'
-        wid = unique_id(slug(t), taken)
-        taken.add(wid)
-        full_rel = 'full/%s.jpg' % wid
-        thumb_rel = 'thumbs/%s.jpg' % wid
-        with open(os.path.join(HERE, full_rel), 'wb') as f:
-            f.write(full)
-        with open(os.path.join(HERE, thumb_rel), 'wb') as f:
-            f.write(thumb)
-        entry = {
-            'id': wid,
-            'title': t,
-            'added': datetime.date.today().isoformat(),
-            'color': color,
-            'width': img.width,
-            'height': img.height,
-            'file': full_rel,
-            'bytes': len(full),
-            'sha256': sha256(full),
-            'thumb': thumb_rel,
-            'thumbBytes': len(thumb),
-            'thumbSha256': sha256(thumb),
-        }
-        if author:
-            entry['author'] = author
-        if license_:
-            entry['license'] = license_
-        if source:
-            entry['source'] = source
-        data['wallpapers'].insert(0, entry)
-        print('added %s  "%s"  %dx%d  %.1f MB' % (wid, t, img.width, img.height, len(full) / 1048576))
-    save_manifest(data)
+        try:
+            add_one(data, taken, path, author, license_, title, source)
+        except ValueError as e:
+            sys.exit('%s: %s' % (path, e))
+        save_manifest(data)  # after each photo, so a later failure leaves no unlisted files
+
+
+def uploads(folder, report):
+    """
+    --uploads: every photo in folder, as the owner's own (no credit), title from its file name.
+    Writes report (JSON): done (file names added) and failed ([name, why]). Exit status 1 when any failed.
+    """
+    data = load_manifest()
+    taken = {w['id'] for w in data['wallpapers']} | set(data.get('retired', []))
+    done, failed = [], []
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path) or name.startswith('.') or name.lower() == 'readme.md':
+            continue
+        if not name.lower().endswith(UPLOAD_EXT):
+            failed.append([name, 'not a photo (JPEG, PNG, WebP, TIFF or HEIC)'])
+            continue
+        try:
+            add_one(data, taken, path, '', '', None, None)
+        except ValueError as e:
+            failed.append([name, str(e)])
+            continue
+        save_manifest(data)
+        done.append(name)
+    if report:
+        with open(report, 'w', encoding='utf-8') as f:
+            json.dump({'done': done, 'failed': failed}, f, ensure_ascii=False, indent=1)
+    print('%d added, %d could not be added' % (len(done), len(failed)))
+    for name, why in failed:
+        print('  %s: %s' % (name, why))
+    return 1 if failed else 0
 
 
 def remove(wid):
@@ -266,9 +322,13 @@ def main():
     ap.add_argument('--source')
     ap.add_argument('--remove', metavar='ID')
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--uploads', metavar='FOLDER', help='add every photo in FOLDER as your own (the upload Action)')
+    ap.add_argument('--report', metavar='FILE', help='with --uploads: write what was added and what failed (JSON)')
     a = ap.parse_args()
     if a.check:
         sys.exit(check())
+    if a.uploads:
+        sys.exit(uploads(a.uploads, a.report))
     if a.remove:
         remove(a.remove)
         return
