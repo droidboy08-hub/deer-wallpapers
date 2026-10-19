@@ -2,6 +2,22 @@
   "version": 1,
   "wallpapers": [
     {
+      "id": "r07qxo-rdownload",
+      "kind": "video",
+      "title": "@r07qxo R⤓Download",
+      "added": "2026-10-19",
+      "color": "#1a1617",
+      "width": 720,
+      "height": 1280,
+      "duration": 56.3,
+      "file": "full/r07qxo-rdownload.mp4",
+      "bytes": 4680328,
+      "sha256": "c012bba61eb6eebe0750ac8244dc8b586e99764d9ef85c72091d78670076a1f2",
+      "thumb": "thumbs/r07qxo-rdownload.jpg",
+      "thumbBytes": 15494,
+      "thumbSha256": "80aa9062c6bce51ff923433248a5eeac6d0d4321d4e6dd656d58004791d9f82d"
+    },
+    {
       "id": "teshiisan-07032026-0001-2",
       "kind": "video",
       "title": "Teshiisan 07032026 0001",
