@@ -25,8 +25,11 @@ live-wallpapers/ (videos): they are the master list. A file is known by the SHA-
   - an item whose file is gone from its folder is removed: its files deleted, its id retired;
   - a renamed file keeps its wallpaper (same id); only the title changes;
   - a file whose content changed is a new item, and the old one is removed;
-  - a photo in live-wallpapers/, a video in wallpapers/, or a file that is no photo or video or cannot
-    be read is reported (exit status 1, and in --report) and not published; the others still are.
+  - a photo in live-wallpapers/, a video in wallpapers/, a photo or video outside both folders, or a
+    file that is no photo or video or cannot be read is reported (exit status 1, and in --report) and
+    not published; the others still are. Anything else going wrong stops the sync with exit status 2
+    (and the error in --report): what was done until then is consistent, and the Action publishes none
+    of it.
 The title comes from the file name ("Lake at dawn.jpg" -> "Lake at dawn", "lake_at-dawn.jpg" too;
 camera names such as IMG_2034.jpg or VID_20261012.mp4 -> "Photo" / "Video"). Someone else's photo or
 video carries the credit the private credits.json gives its file name:
@@ -35,7 +38,8 @@ video carries the credit the private credits.json gives its file name:
 no entry there keeps the credit it has. Nothing in PRIVATE is ever written, moved or deleted.
 
 A photo is turned the right way up (EXIF orientation), converted to sRGB and stripped of every bit of
-metadata (EXIF, GPS location, camera serial numbers, colour profile); iPhone HEIC needs pillow-heif.
+metadata (EXIF, GPS location, camera serial numbers, colour profile, comments): the JPEG written holds
+nothing but its picture (--check walks its markers to be sure); iPhone HEIC needs pillow-heif.
 A video (needs ffmpeg and ffprobe on PATH, or FFMPEG_DIR naming their folder) keeps the picture only (no
 sound, metadata, chapters or subtitles), turned upright, HDR (iPhone HLG / Dolby Vision, HEVC) mapped to
 ordinary SDR colours, H.264 at most 2560 x 1440 (never enlarged) and 60 frames a second, any length;
@@ -58,11 +62,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 import unicodedata
 import urllib.parse
 
 try:
-    from PIL import Image, ImageCms, ImageOps, ImageStat
+    from PIL import Image, ImageCms, ImageStat
 except ImportError:
     sys.exit('Pillow is needed: python -m pip install pillow')
 
@@ -106,7 +111,8 @@ ID_RE = re.compile(r'^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$')
 HEX64 = re.compile(r'^[0-9a-f]{64}$')
 COLOR_RE = re.compile(r'^#[0-9a-f]{6}$')
 DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-# Deer skips an entry whose texts are longer than these or hold control or direction characters.
+# Deer skips an entry whose texts are longer than these or hold control or direction characters. Deer
+# counts as JavaScript does, in UTF-16 units (an emoji is two): u16len().
 TEXT_MAX = {'title': 120, 'author': 120, 'license': 64}
 SOURCE_MAX = 500
 UNSAFE = re.compile('[\u0000-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]')
@@ -217,8 +223,24 @@ def is_video(path):
     return path.lower().endswith(VIDEO_EXT)
 
 
+def u16len(s):
+    """The length Deer sees: UTF-16 units, as JavaScript's String length (a character past U+FFFF is two)."""
+    return len(s.encode('utf-16-le')) // 2
+
+
+def cut16(s, most):
+    """s cut to at most `most` UTF-16 units, never inside a character."""
+    out, n = [], 0
+    for ch in s:
+        n += 2 if ord(ch) > 0xFFFF else 1
+        if n > most:
+            break
+        out.append(ch)
+    return ''.join(out)
+
+
 def clean_title(t, default):
-    return UNSAFE.sub('', unicodedata.normalize('NFC', t)).strip()[:TEXT_MAX['title']].strip() or default
+    return cut16(UNSAFE.sub('', unicodedata.normalize('NFC', t)).strip(), TEXT_MAX['title']).strip() or default
 
 
 def title_from(name):
@@ -277,7 +299,7 @@ def credit_from(c):
         if not isinstance(v, str) or not v.strip():
             return 'author and license are both needed'
         v = unicodedata.normalize('NFC', v.strip())
-        if len(v) > TEXT_MAX[key] or UNSAFE.search(v):
+        if u16len(v) > TEXT_MAX[key] or UNSAFE.search(v):
             return '%s is longer than %d characters or holds control characters' % (key, TEXT_MAX[key])
         out[key] = v
     if c.get('source') not in (None, ''):
@@ -372,9 +394,15 @@ def to_srgb(img):
 
 
 def jpeg_bytes(img, quality):
+    """The picture alone as a JPEG: no exif=, icc_profile= or xmp=, and comment=b'' (Pillow would
+    otherwise write the source's COM segment, which it keeps in img.info, a camera's or anyone's text);
+    img.info is set aside meanwhile so nothing else of the source can reach the encoder."""
     buf = io.BytesIO()
-    # No exif=, no icc_profile=: Pillow then writes no metadata at all.
-    img.save(buf, 'JPEG', quality=quality, optimize=True, progressive=True)
+    info, img.info = img.info, {}
+    try:
+        img.save(buf, 'JPEG', quality=quality, optimize=True, progressive=True, comment=b'')
+    finally:
+        img.info = info
     return buf.getvalue()
 
 
@@ -388,16 +416,36 @@ def thumb_and_color(img):
     return thumb, '#%02x%02x%02x' % tuple(int(round(c)) for c in mean[:3])
 
 
+ORIENTATION = {2: Image.Transpose.FLIP_LEFT_RIGHT, 3: Image.Transpose.ROTATE_180, 4: Image.Transpose.FLIP_TOP_BOTTOM,
+               5: Image.Transpose.TRANSPOSE, 6: Image.Transpose.ROTATE_270, 7: Image.Transpose.TRANSVERSE,
+               8: Image.Transpose.ROTATE_90}
+
+
+def upright(im, label):
+    """
+    The pixels turned as the EXIF orientation says (what ImageOps.exif_transpose does to them; it also
+    rewrites the EXIF block, which is thrown away here anyway, and a damaged block makes that raise).
+    """
+    try:
+        o = im.getexif().get(0x0112, 1)
+    except Exception:
+        warn('%s: its EXIF cannot be read, so it is published as stored (is it upright?)' % label)
+        o = 1
+    method = ORIENTATION.get(o) if isinstance(o, int) else None
+    return im.transpose(method) if method is not None else im.copy()
+
+
 def make_photo(path, label):
     """The cleaned picture and thumbnail of one photo; ValueError when it cannot be used."""
     try:
         with Image.open(path) as im:
             im.load()
-            img = ImageOps.exif_transpose(im)
-            img = to_srgb(img)
-    except (OSError, SyntaxError, ValueError, Image.DecompressionBombError) as e:
-        why = 'damaged, or not a picture' if 'cannot identify image file' in str(e) else str(e)
+            img = to_srgb(upright(im, label))
+    except Exception as e:
+        # A damaged file can make Pillow raise anything (OSError, SyntaxError, struct.error, TypeError...).
+        why = 'damaged, or not a picture' if 'cannot identify image file' in str(e) else '%s: %s' % (type(e).__name__, e)
         raise ValueError('not a photo that can be read (%s)' % why) from None
+    img.info = {}  # nothing of the source's metadata travels with the pixels
     w, h = img.size
     if w < MIN_WIDTH:
         warn('%s is only %d px wide; it will look soft as a background' % (label, w))
@@ -548,7 +596,11 @@ class Private:
 
 
 def scan(root, failed):
-    """The files of each private folder, by kind; a file in the wrong folder or of no known type goes to failed."""
+    """
+    The files of each private folder, by kind; a file in the wrong folder, of no known type or that
+    cannot be read goes to failed, and so does a photo or video anywhere else in the repository (dropped
+    on its front page by mistake: it would never be published, and nothing would say so).
+    """
     files = {}
     for kind, k in KINDS.items():
         base = os.path.join(root, k['dir'])
@@ -573,8 +625,19 @@ def scan(root, failed):
                 elif kind == 'video' and low.endswith(PHOTO_EXT):
                     failed.append([rel, 'a photo in live-wallpapers/: photos go in wallpapers/'])
                 else:
-                    found.append(Private(root, path))
+                    try:
+                        found.append(Private(root, path))
+                    except OSError as e:
+                        failed.append([rel, 'cannot be read (%s)' % (e.strerror or e)])
         files[kind] = sorted(found, key=lambda f: f.rel)
+    homes = {os.path.normcase(os.path.join(root, k['dir'])) for k in KINDS.values()}
+    for dirpath, dirnames, names in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith('.')
+                             and os.path.normcase(os.path.join(dirpath, d)) not in homes)
+        for name in sorted(names):
+            if name.lower().endswith(PHOTO_EXT + VIDEO_EXT):
+                rel = os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, '/')
+                failed.append([rel, 'outside the folders: photos go in wallpapers/, videos in live-wallpapers/'])
     return files
 
 
@@ -585,7 +648,8 @@ def sync(root, report_path):
     failed = []
     files = scan(root, failed)
     taken = ids_taken(index, legacy)
-    rep = {'added': [], 'removed': [], 'retitled': [], 'recredited': [], 'failed': failed, 'warnings': WARNINGS}
+    rep = {'added': [], 'removed': [], 'retitled': [], 'recredited': [], 'failed': failed, 'warnings': WARNINGS,
+           'error': None}
     used_keys = set()
 
     def lookup(group):
@@ -653,8 +717,11 @@ def sync(root, report_path):
                 f = group[0]
                 try:
                     made = (make_video if kind == 'video' else make_photo)(f.path, f.rel)
-                except ValueError as err:
-                    failed.append([f.rel, str(err)])
+                except Exception as err:
+                    # A ValueError says why; anything else is a file a library could not cope with. Either
+                    # way this file is reported and the others still go.
+                    failed.append([f.rel, str(err) if isinstance(err, ValueError)
+                                   else 'cannot be converted (%s: %s)' % (type(err).__name__, err)])
                     continue
                 title = title_from(f.name)
                 wid = unique_id(slug(title), taken)
@@ -670,6 +737,13 @@ def sync(root, report_path):
         for key in sorted(set(credits) - used_keys):
             warn('credits.json names "%s", which is in neither folder' % key)
         save_index(index)
+    except Exception as err:
+        # Not a file's fault (those are caught above): a bug, a full disk. Every change until then was
+        # saved whole, but the sync is not done: exit status 2, and the Action publishes nothing.
+        rep['error'] = '%s: %s' % (type(err).__name__, err)
+        traceback.print_exc()
+        print('error: the sync stopped (%s); nothing of it is to be published' % rep['error'])
+        return 2
     finally:
         if report_path:
             with open(report_path, 'w', encoding='utf-8') as fh:
@@ -694,8 +768,61 @@ def mp4_start(head, total):
     return any(b in VIDEO_BRANDS for b in brands) and not any(b in IMAGE_BRANDS for b in brands)
 
 
+def jpeg_markers(b):
+    """
+    The marker segments of a JPEG, in order, as (marker, payload), walking it from SOI to EOI past the
+    entropy-coded data of each scan; ValueError when it is not built so, or has bytes after its end.
+    """
+    if b[:2] != b'\xff\xd8':
+        raise ValueError('does not start as a JPEG')
+    out, i, n = [], 2, len(b)
+    while True:
+        if i >= n or b[i] != 0xFF:
+            raise ValueError('a marker is missing at byte %d' % i)
+        while i < n and b[i] == 0xFF:
+            i += 1  # fill bytes
+        if i >= n:
+            raise ValueError('ends inside a marker')
+        m = b[i]
+        i += 1
+        if m == 0xD9:
+            if i != n:
+                raise ValueError('%d bytes after its end' % (n - i))
+            out.append((m, b''))
+            return out
+        if 0xD0 <= m <= 0xD7 or m == 0x01:
+            out.append((m, b''))
+            continue
+        if i + 2 > n:
+            raise ValueError('ends inside a marker')
+        length = int.from_bytes(b[i:i + 2], 'big')
+        if length < 2 or i + length > n:
+            raise ValueError('a segment runs past the end')
+        out.append((m, b[i + 2:i + length]))
+        i += length
+        if m == 0xDA:
+            # The scan's data, up to the next marker that is neither a stuffed FF 00 nor a restart.
+            while i < n and not (b[i] == 0xFF and i + 1 < n and b[i + 1] != 0x00 and not 0xD0 <= b[i + 1] <= 0xD7):
+                i += 1
+
+
+# What a JPEG of add.py's may hold: its JFIF header, quantisation and Huffman tables, the frame
+# (baseline or progressive), restart interval, scans and restarts. Anything else (APP1 EXIF / XMP,
+# APP2 ICC, APP13 Photoshop, COM comments, any other APPn) is metadata.
+JPEG_ALLOWED = {0xDB, 0xC4, 0xC0, 0xC1, 0xC2, 0xDD, 0xDA, 0xD9} | set(range(0xD0, 0xD8))
+
+
 def jpeg_problem(b, size=None, max_side=None):
-    """Why bytes b are not a JPEG without metadata (of the given size), or None."""
+    """Why bytes b are not a JPEG holding nothing but its picture (of the given size), or None."""
+    try:
+        markers = jpeg_markers(b)
+    except ValueError as e:
+        return 'is not a well-formed JPEG (%s)' % e
+    for m, payload in markers:
+        if m == 0xE0 and payload.startswith(b'JFIF\x00'):
+            continue
+        if m not in JPEG_ALLOWED:
+            return 'holds metadata (marker FF %02X)' % m
     try:
         with Image.open(io.BytesIO(b)) as im:
             if im.format != 'JPEG':
@@ -704,8 +831,6 @@ def jpeg_problem(b, size=None, max_side=None):
                 return 'is %dx%d, not the listed %dx%d' % (im.size + size)
             if max_side and max(im.size) > max_side:
                 return 'is bigger than %d px' % max_side
-            if any(k in im.info for k in ('exif', 'icc_profile', 'xmp', 'XML:com.adobe.xmp', 'photoshop')):
-                return 'holds metadata'
     except Exception as e:
         return 'cannot be read (%s)' % e
     return None
@@ -732,8 +857,9 @@ def entry_problems(e, kind, retired, seen, origins):
     for key in ('title', 'author', 'license'):
         v = e.get(key)
         if key == 'title' or key in e:
-            if not isinstance(v, str) or not v.strip() or len(v.strip()) > TEXT_MAX[key] or UNSAFE.search(v):
-                p.append('%s must be text of at most %d characters, no control characters' % (key, TEXT_MAX[key]))
+            if not isinstance(v, str) or not v.strip() or u16len(v.strip()) > TEXT_MAX[key] or UNSAFE.search(v):
+                p.append('%s must be text of at most %d characters (UTF-16 units, as Deer counts), no control characters'
+                         % (key, TEXT_MAX[key]))
     if bool(e.get('author')) != bool(e.get('license')):
         p.append('author and license go together (or neither, for the owner\'s own)')
     if 'source' in e and source_problem(e['source']):
@@ -809,7 +935,7 @@ def legacy_problems(legacy):
                 p.append('missing ' + key)
         for key, most in TEXT_MAX.items():
             v = w.get(key)
-            if v is not None and (not isinstance(v, str) or len(v.strip()) > most or UNSAFE.search(v)):
+            if v is not None and (not isinstance(v, str) or u16len(v.strip()) > most or UNSAFE.search(v)):
                 p.append('%s is longer than %d characters or holds control characters' % (key, most))
         if bool(w.get('author')) != bool(w.get('license')):
             p.append('author and license go together')

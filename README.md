@@ -22,7 +22,7 @@ Do not change the collection here by hand: the next sync puts it back as the upl
 | | |
 | --- | --- |
 | `index.json` | the list Deer reads: `{"version": 2, "wallpapers": [...], "live": [...], "retired": [...]}` |
-| `wallpapers/<id>.jpg` | a photo: turned the right way up, sRGB, no metadata (EXIF, GPS location, camera details), at most 3840 px on the long side |
+| `wallpapers/<id>.jpg` | a photo: turned the right way up, sRGB, no metadata (EXIF, GPS location, camera details, comments: the JPEG holds its picture and nothing else), at most 3840 px on the long side |
 | `wallpapers/thumbs/<id>.jpg` | its thumbnail, 480 px wide |
 | `live-wallpapers/<id>.mp4` | a video: picture only (no sound, no metadata), H.264, at most 2560 x 1440, any length but under 95 MB (GitHub's limit is 100 MB a file) |
 | `live-wallpapers/thumbs/<id>.jpg` | a frame from its first second, 480 px wide |
@@ -40,7 +40,8 @@ as they were on 2026-10-21 (Deer updates itself, so they are only needed for a w
 there, and nothing is taken out of them any more.
 
 `python add.py --check` (needs Python and Pillow: `python -m pip install pillow`) checks all of it:
-every file against its size and SHA-256, the folders against `index.json`, `CREDITS.md`, and
+every file against its size and SHA-256, every JPEG's markers (nothing but the picture), the folders
+against `index.json`, `CREDITS.md`, and
 `wallpapers.json` against `full/` and `thumbs/`. The Action runs it before every push. To try a sync on
 a PC, clone both repositories side by side and run `python add.py --sync ..\deer-wallpapers-upload`
 (also needs `pillow-heif` for iPhone HEIC photos, and FFmpeg for videos: `winget install Gyan.FFmpeg`,
