@@ -866,7 +866,24 @@
       "source": "https://commons.wikimedia.org/wiki/File:Earth_Observations_(iss072e574663).jpg"
     }
   ],
-  "live": [],
+  "live": [
+    {
+      "id": "evelyn-3840x2160",
+      "title": "Evelyn 3840x2160",
+      "added": "2026-10-22",
+      "color": "#7c7275",
+      "width": 2560,
+      "height": 1440,
+      "duration": 11.7,
+      "file": "live-wallpapers/evelyn-3840x2160.mp4",
+      "bytes": 1457769,
+      "sha256": "926c3e5c016558d114c79d859500240a3758c18b47492204aceb65186f454a7a",
+      "thumb": "live-wallpapers/thumbs/evelyn-3840x2160.jpg",
+      "thumbBytes": 9501,
+      "thumbSha256": "a6aac70e347258f19fc8d5b53631dbba65735362f14f71c717c5044b0f53b3d3",
+      "originSha256": "b98b01a1ae35c7d8b64b25954035018870430d4132572e55508640110ee76811"
+    }
+  ],
   "retired": [
     "little-sahara-dunes-at-dusk-utah",
     "r07qxo-rdownload",
