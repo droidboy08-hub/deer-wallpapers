@@ -898,6 +898,22 @@
   ],
   "live": [
     {
+      "id": "dark-castle-2160p",
+      "title": "Dark castle 2160p",
+      "added": "2026-11-09",
+      "color": "#314052",
+      "width": 2560,
+      "height": 1440,
+      "duration": 20.0,
+      "file": "live-wallpapers/dark-castle-2160p.mp4",
+      "bytes": 3259099,
+      "sha256": "c458b9ee76a577d9c185ae64bc9d2c08cb69be9b3b379482381dada1976bfb97",
+      "thumb": "live-wallpapers/thumbs/dark-castle-2160p.jpg",
+      "thumbBytes": 30744,
+      "thumbSha256": "cf80eefc714d4aeabe3e5f3303c10044f92c57acf4475339574bfc50599e8855",
+      "originSha256": "49b054d86079496ca6862aba21edb55834006405b83dc9e31901ffb9c0dfdb63"
+    },
+    {
       "id": "r07qxo-rdownload-3",
       "title": "@r07qxo - R⤓Download",
       "added": "2026-11-03",
