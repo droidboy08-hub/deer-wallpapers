@@ -898,6 +898,22 @@
   ],
   "live": [
     {
+      "id": "dark-castle-1080p",
+      "title": "Dark castle 1080p",
+      "added": "2026-11-09",
+      "color": "#314052",
+      "width": 1920,
+      "height": 1080,
+      "duration": 20.0,
+      "file": "live-wallpapers/dark-castle-1080p.mp4",
+      "bytes": 4953810,
+      "sha256": "88be51e88ce6e94f611cbb4bc7030215af24e93addbfa928e824095a986cf708",
+      "thumb": "live-wallpapers/thumbs/dark-castle-1080p.jpg",
+      "thumbBytes": 30977,
+      "thumbSha256": "05bc82da39919c7bf6b5f4de4bafa4cf417cb8d0988a5ed3c1dbfee0a2afd975",
+      "originSha256": "9b194b63e1c2479d1f7130d335ae32b58b3627e397d80edac5cad607558bfe89"
+    },
+    {
       "id": "dark-castle-2160p",
       "title": "Dark castle 2160p",
       "added": "2026-11-09",
